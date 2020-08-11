@@ -3,6 +3,7 @@ from collections import defaultdict
 import redis
 import json
 import os
+import datetime
 from button import KeyboardBtn
 
 
@@ -10,7 +11,6 @@ START_CREATE, GET_LOCATION, GET_NAME, GET_PHOTO, CONFIRM_ADD = range(5)
 START_DEL, CONFIRM_DEL = range(2)
 START_LIST = 0
 NO_PHOTO = "Без фотографии"
-BACK_TO_START = "Для отображения доступных команд введите\n/start"
 USER_STATE_ADD = defaultdict(lambda: START_CREATE)
 USER_STATE_DEL = defaultdict(lambda: START_DEL)
 USER_STATE_LIST = defaultdict(lambda: START_LIST)
@@ -27,13 +27,15 @@ json_template_currently = {
     "latitude": "",
     "longitude": "",
     "name": "",
-    "photo": ""
+    "photo": "",
+    "time": ""
 }
 json_template_bd = {
     "latitude": [],
     "longitude": [],
     "name": [],
-    "photo": []
+    "photo": [],
+    "time": []
 }
 
 
@@ -43,6 +45,12 @@ def get_state_usr(message, action):
 
 def update_state_usr(message, state, action):
     action[message.chat.id] = state
+
+
+def back_to_start(message, text="", text_btn=("/start",)):
+    button = KeyboardBtn(text_btn)
+    text_back = "Для отображения доступных команд введите\n/start"
+    bot.send_message(chat_id=message.chat.id, text=text + text_back, reply_markup=button.create_keyboard())
 
 
 def clean_json(json):
@@ -107,6 +115,7 @@ def get_location(message):
         if message.location is not None:
             json_template_currently["longitude"] = message.location.longitude
             json_template_currently["latitude"] = message.location.latitude
+            json_template_currently["time"] = datetime.datetime.now().strftime("%H:%M %d.%m.%y")
             update_state_usr(message, GET_NAME, USER_STATE_ADD)
             bot.send_message(chat_id=message.chat.id, text="Добавьте имя геолокации")
         elif message.location is None:
@@ -122,7 +131,8 @@ def get_name(message):
             text = """
             Добавьте фотографию геолокации или введите любой текст, чтобы не добавлять фотографию
             """
-            bot.send_message(chat_id=message.chat.id, text=text)
+            button = KeyboardBtn(("Без фотографии",))
+            bot.send_message(chat_id=message.chat.id, text=text, reply_markup=button.create_keyboard())
         elif message.text is None:
             bot.send_message(chat_id=message.chat.id, text="Вы не написали имя локации. Попробуйте еще раз.")
 
@@ -167,7 +177,7 @@ def confirm_add(message):
             bot.send_message(chat_id=message.chat.id, text="Локация не сохранена.")
         clean_json(json_template_currently)
         update_state_usr(message, START_CREATE, USER_STATE_ADD)
-        bot.send_message(chat_id=message.chat.id, text=BACK_TO_START)
+        back_to_start(message)
 
 
 def get_json_loc(message):
@@ -187,16 +197,16 @@ def get_list_10(json_f, n):
 def output_10(message, json10, n):
     right_limit = len(json10["latitude"]) if len(json10["latitude"]) != 10 else 10
     for number in range(right_limit):
-        bot.send_message(chat_id=message.chat.id, text="{}. {}".format(n + number + 1, json10["name"][number]))
+        text = "{}. {}\nЛокация добавленна: {}".format(n + number + 1, json10["name"][number], json10["time"][number])
+        if json10["photo"][number] == NO_PHOTO:
+            bot.send_message(chat_id=message.chat.id, text=text + "\n" + json10["photo"][number])
+        else:
+            bot.send_photo(chat_id=message.chat.id, photo=json10["photo"][number], caption=text)
         bot.send_location(
             chat_id=message.chat.id,
             latitude=json10["latitude"][number],
             longitude=json10["longitude"][number]
         )
-        if json10["photo"][number] == NO_PHOTO:
-            bot.send_message(chat_id=message.chat.id, text=json10["photo"][number])
-        else:
-            bot.send_photo(chat_id=message.chat.id, photo=json10["photo"][number])
 
 
 def output_logic(message, state):
@@ -206,11 +216,11 @@ def output_logic(message, state):
     len_json10 = len(json10["latitude"])
     size_n10 = state * 10
     if len_all_list == 0:
-        bot.send_message(chat_id=message.chat.id, text="У вас нет геолокаций" + text_add + " . " + BACK_TO_START)
+        back_to_start(message, "У вас нет геолокаций" + text_add, ("/start", "/add"))
     else:
         if len_all_list < size_n10:
             update_state_usr(message, START_LIST, USER_STATE_LIST)
-            bot.send_message(chat_id=message.chat.id, text="Больше нет геолокаций. " + BACK_TO_START)
+            back_to_start(message, "Больше нет геолокаций" + text_add + " . ", ("/start", "/add"))
         else:
             bot.send_message(chat_id=message.chat.id, text="{}/{} :".format(size_n10 + len_json10, len_all_list))
             output_10(message, json10, size_n10)
@@ -233,7 +243,7 @@ def show_list(message):
         if message.text.strip().lower() == "ещё":
             output_logic(message, get_state_usr(message, USER_STATE_LIST))
         else:
-            bot.send_message(chat_id=message.chat.id, text=BACK_TO_START)
+            back_to_start(message)
             clean_json(json_template_currently)
             update_state_usr(message, START_LIST, USER_STATE_LIST)
 
@@ -253,9 +263,9 @@ def confirm_reset(message):
     if check_not_command(message, USER_STATE_DEL):
         if message.text is not None and message.text.strip().lower() == "да":
             create_and_del_usr(message)
-            bot.send_message(chat_id=message.chat.id, text="Все локации удалены. " + BACK_TO_START)
+            back_to_start(message, "Все локации удалены. ")
         else:
-            bot.send_message(chat_id=message.chat.id, text="Локации не удалены. " + BACK_TO_START)
+            back_to_start(message, "Локации не удалены. ")
     update_state_usr(message, START_DEL, USER_STATE_DEL)
 
 
