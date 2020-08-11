@@ -20,8 +20,8 @@ redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
 
 bot = telebot.TeleBot(token)
 bd = redis.from_url(redis_url)
-commands = ('/add', '/list', '/reset')
-yes_no_btns = KeyboardBtn(("Да", "Нет"))
+commands = ('/add', '/list', '/reset', '/start', '/help')
+yes_no_btns = ("Да", "Нет")
 
 json_template_currently = {
     "latitude": "",
@@ -86,18 +86,24 @@ def check_not_command(message, action):
     return True
 
 
+def message_btn(message, text, btn):
+    buttons = KeyboardBtn(btn)
+    bot.send_message(chat_id=message.chat.id, text=text, reply_markup=buttons.create_keyboard())
+
+
 @bot.message_handler(func=lambda x: True, commands=['start'])
 def start_menu(message):
-    text = """
-    Введите команду:
-    1. /add для добавления локации
-    2. /list для просмотра 10 последних локаций
-    3. /reset для удаления всех локаций
-    """
-    buttons = KeyboardBtn(commands)
-    bot.send_message(chat_id=message.chat.id, text=text, reply_markup=buttons.create_keyboard())
+    text = "Чтобы просмотреть доступные команды введите /help"
+    message_btn(message, text, ("/help",))
     if message.from_user.id not in bd:
         create_and_del_usr(message)
+
+
+@bot.message_handler(func=lambda x: True, commands=['/help'])
+def start_menu(message):
+    text1 = "Введите команду:\n1. /add для добавления локации\n2. /list для просмотра 10 последних локаций\n"
+    text2 = "3. /reset для удаления всех локаций"
+    message_btn(message, text1 + text2, ("/add", "/list", "/reset"))
 
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_ADD) == START_CREATE, commands=['add'])
@@ -112,14 +118,14 @@ def start_create(message):
 )
 def get_location(message):
     if check_not_command(message, USER_STATE_ADD):
+        text = "Вы отправили не геолокацию. Попробуйте еще раз."
         if message.location is not None:
             json_template_currently["longitude"] = message.location.longitude
             json_template_currently["latitude"] = message.location.latitude
             json_template_currently["time"] = datetime.datetime.now().strftime("%H:%M %d.%m.%y")
             update_state_usr(message, GET_NAME, USER_STATE_ADD)
-            bot.send_message(chat_id=message.chat.id, text="Добавьте имя геолокации")
-        elif message.location is None:
-            bot.send_message(chat_id=message.chat.id, text="Вы отправили не геолокацию. Попробуйте еще раз.")
+            text = "Добавьте имя геолокации"
+        bot.send_message(chat_id=message.chat.id, text=text)
 
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_ADD) == GET_NAME, content_types=["text"])
@@ -131,8 +137,7 @@ def get_name(message):
             text = """
             Добавьте фотографию геолокации или введите любой текст, чтобы не добавлять фотографию
             """
-            button = KeyboardBtn(("Без фотографии",))
-            bot.send_message(chat_id=message.chat.id, text=text, reply_markup=button.create_keyboard())
+            message_btn(message, text, ("Без фотографии",))
         elif message.text is None:
             bot.send_message(chat_id=message.chat.id, text="Вы не написали имя локации. Попробуйте еще раз.")
 
@@ -157,24 +162,21 @@ def get_photo(message):
             json_template_currently["photo"] = NO_PHOTO
         else:
             json_template_currently["photo"] = message.photo[-1].file_id
-        bot.send_message(
-            chat_id=message.chat.id,
-            text="""
-            Сохранить? Нажмите на кнопку или ведите да, чтобы сохранить, или любое другое сообщение, чтобы не сохранять
-            """,
-            reply_markup=yes_no_btns.create_keyboard()
-        )
+        text = """
+        Сохранить? Нажмите на кнопку или ведите да, чтобы сохранить, или любое другое сообщение, чтобы не сохранять
+        """
+        message_btn(message, text, yes_no_btns)
         update_state_usr(message, CONFIRM_ADD, USER_STATE_ADD)
 
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_ADD) == CONFIRM_ADD, content_types=["text"])
 def confirm_add(message):
     if check_not_command(message, USER_STATE_ADD):
+        text = "Локация не сохранена."
         if message.text is not None and message.text.strip().lower() == "да":
             update_bd(json_template_currently, bd, message)
-            bot.send_message(chat_id=message.chat.id, text="Локация сохранена.")
-        else:
-            bot.send_message(chat_id=message.chat.id, text="Локация не сохранена.")
+            text = "Локация сохранена."
+        bot.send_message(chat_id=message.chat.id, text=text)
         clean_json(json_template_currently)
         update_state_usr(message, START_CREATE, USER_STATE_ADD)
         back_to_start(message)
@@ -224,10 +226,9 @@ def output_logic(message, state):
         else:
             bot.send_message(chat_id=message.chat.id, text="{}/{} :".format(size_n10 + len_json10, len_all_list))
             output_10(message, json10, size_n10)
-            button = KeyboardBtn(("Ещё", "Хватит"))
             text1 = "Напишите текст или нажмите кнопку 'Ещё', чтобы дальше смотреть, "
             text2 = "или любой другой текст, чтобы выйти из режима просмотра."
-            bot.send_message(chat_id=message.chat.id, text=text1 + text2, reply_markup=button.create_keyboard())
+            message_btn(message, text1 + text2, ("Ещё", "Хватит"))
             update_state_usr(message, state + 1, USER_STATE_LIST)
 
 
@@ -250,23 +251,20 @@ def show_list(message):
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_DEL) == START_DEL, commands=['reset'])
 def start_reset(message):
-    bot.send_message(
-        chat_id=message.chat.id,
-        text="Удалить? Нажмите на кнопку или ведите да, чтобы удалить, или любое другое сообщение, чтобы не удалять",
-        reply_markup=yes_no_btns.create_keyboard()
-    )
+    text = "Удалить? Нажмите на кнопку или ведите да, чтобы удалить, или любое другое сообщение, чтобы не удалять"
+    message_btn(message, text, yes_no_btns)
     update_state_usr(message, CONFIRM_DEL, USER_STATE_DEL)
 
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_DEL) == CONFIRM_DEL)
 def confirm_reset(message):
     if check_not_command(message, USER_STATE_DEL):
+        text = "Локации не удалены. "
         if message.text is not None and message.text.strip().lower() == "да":
             create_and_del_usr(message)
-            back_to_start(message, "Все локации удалены. ")
-        else:
-            back_to_start(message, "Локации не удалены. ")
-    update_state_usr(message, START_DEL, USER_STATE_DEL)
+            text = "Все локации удалены. "
+        back_to_start(message, text)
+        update_state_usr(message, START_DEL, USER_STATE_DEL)
 
 
 if __name__ == '__main__':
