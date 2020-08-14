@@ -1,10 +1,13 @@
 import telebot
 from collections import defaultdict
 import redis
-import json
 import os
-import datetime
-from button import KeyboardBtn
+from start import command_start
+from help import command_help
+import add
+import general_functions
+import list
+import reset
 
 
 START_CREATE, GET_LOCATION, GET_NAME, GET_PHOTO, CONFIRM_ADD = range(5)
@@ -47,68 +50,34 @@ def update_state_usr(message, state, action):
     action[message.chat.id] = state
 
 
-def back_to_start(message, text="", text_btn=("/start",)):
-    button = KeyboardBtn(text_btn)
-    text_back = "Для отображения доступных команд введите\n/start"
-    bot.send_message(chat_id=message.chat.id, text=text + text_back, reply_markup=button.create_keyboard())
-
-
-def clean_json(json):
-    for name_field in json:
-        json[name_field] = ""
-
-
-def stop_command(message, action):
+def stop_command(message, action, start_state, json_v):
     btn = ("{}".format(message.text),)
-    button = KeyboardBtn(btn)
-    bot.send_message(
-        chat_id=message.chat.id,
-        text='Прерванное действие. Введите еще раз новую команду\n{}'.format(message.text),
-        reply_markup=button.create_keyboard()
-    )
-    if action is USER_STATE_ADD:
-        update_state_usr(message, START_CREATE, USER_STATE_ADD)
-    elif action is USER_STATE_DEL:
-        update_state_usr(message, START_DEL, USER_STATE_DEL)
-    elif action is USER_STATE_LIST:
-        update_state_usr(message, START_LIST, USER_STATE_LIST)
-    clean_json(json_template_currently)
+    text = 'Прерванное действие. Введите еще раз новую команду\n{}'.format(message.text)
+    general_functions.message_btn(message, text, btn, bot)
+    update_state_usr(message, start_state, action)
+    general_functions.clean_json(json_v)
 
 
-def create_and_del_usr(message):
-    bd.set(message.from_user.id, json.dumps(json_template_bd))
-
-
-def check_not_command(message, action):
+def check_not_command(message, action, start_state, json_v):
     if message.text in commands:
-        stop_command(message, action)
+        stop_command(message, action, start_state, json_v)
         return False
     return True
 
 
-def message_btn(message, text, btn):
-    buttons = KeyboardBtn(btn)
-    bot.send_message(chat_id=message.chat.id, text=text, reply_markup=buttons.create_keyboard())
-
-
 @bot.message_handler(func=lambda x: True, commands=['start'])
 def start_menu(message):
-    text = "Чтобы просмотреть доступные команды введите /help"
-    message_btn(message, text, ("/help",))
-    if message.from_user.id not in bd:
-        create_and_del_usr(message)
+    command_start(message, bd, bot, json_template_bd)
 
 
-@bot.message_handler(func=lambda x: True, commands=['/help'])
-def start_menu(message):
-    text1 = "Введите команду:\n1. /add для добавления локации\n2. /list для просмотра 10 последних локаций\n"
-    text2 = "3. /reset для удаления всех локаций"
-    message_btn(message, text1 + text2, ("/add", "/list", "/reset"))
+@bot.message_handler(func=lambda x: True, commands=['help'])
+def help_menu(message):
+    command_help(message, bot)
 
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_ADD) == START_CREATE, commands=['add'])
 def start_create(message):
-    bot.send_message(chat_id=message.chat.id, text="Отправьте геолокацию")
+    add.command_add_sc(message, bot)
     update_state_usr(message, GET_LOCATION, USER_STATE_ADD)
 
 
@@ -117,39 +86,18 @@ def start_create(message):
     content_types=["location", "text"]
 )
 def get_location(message):
-    if check_not_command(message, USER_STATE_ADD):
-        text = "Вы отправили не геолокацию. Попробуйте еще раз."
-        if message.location is not None:
-            json_template_currently["longitude"] = message.location.longitude
-            json_template_currently["latitude"] = message.location.latitude
-            json_template_currently["time"] = datetime.datetime.now().strftime("%H:%M %d.%m.%y")
-            update_state_usr(message, GET_NAME, USER_STATE_ADD)
-            text = "Добавьте имя геолокации"
-        bot.send_message(chat_id=message.chat.id, text=text)
+    if check_not_command(message, USER_STATE_ADD, START_CREATE, json_template_currently):
+        state = GET_LOCATION
+        if add.command_add_gl(message, json_template_currently, bot):
+            state = GET_NAME
+        update_state_usr(message, state, USER_STATE_ADD)
 
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_ADD) == GET_NAME, content_types=["text"])
 def get_name(message):
-    if check_not_command(message, USER_STATE_ADD):
-        if message.text is not None:
-            json_template_currently["name"] = message.text
-            update_state_usr(message, GET_PHOTO, USER_STATE_ADD)
-            text = """
-            Добавьте фотографию геолокации или введите любой текст, чтобы не добавлять фотографию
-            """
-            message_btn(message, text, ("Без фотографии",))
-        elif message.text is None:
-            bot.send_message(chat_id=message.chat.id, text="Вы не написали имя локации. Попробуйте еще раз.")
-
-
-def update_bd(dict, bd, message):
-    if message.from_user.id in bd:
-        json_from_bd = json.loads(bd.get(message.from_user.id).decode('utf8'))
-        for name_field in json_from_bd:
-            json_from_bd[name_field].append(dict[name_field])
-        bd.set(message.from_user.id, json.dumps(json_from_bd))
-    else:
-        bd.set(message.from_user.id, json.dumps(dict))
+    if check_not_command(message, USER_STATE_ADD, START_CREATE, json_template_currently):
+        add.command_add_gn(message, json_template_currently, bot, NO_PHOTO)
+        update_state_usr(message, GET_PHOTO, USER_STATE_ADD)
 
 
 @bot.message_handler(
@@ -157,113 +105,43 @@ def update_bd(dict, bd, message):
     content_types=["photo", "text"]
 )
 def get_photo(message):
-    if check_not_command(message, USER_STATE_ADD):
-        if message.photo is None:
-            json_template_currently["photo"] = NO_PHOTO
-        else:
-            json_template_currently["photo"] = message.photo[-1].file_id
-        text = """
-        Сохранить? Нажмите на кнопку или ведите да, чтобы сохранить, или любое другое сообщение, чтобы не сохранять
-        """
-        message_btn(message, text, yes_no_btns)
+    if check_not_command(message, USER_STATE_ADD, START_CREATE, json_template_currently):
+        add.command_add_gp(message, json_template_currently, NO_PHOTO, yes_no_btns, bot)
         update_state_usr(message, CONFIRM_ADD, USER_STATE_ADD)
 
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_ADD) == CONFIRM_ADD, content_types=["text"])
 def confirm_add(message):
-    if check_not_command(message, USER_STATE_ADD):
-        text = "Локация не сохранена."
-        if message.text is not None and message.text.strip().lower() == "да":
-            update_bd(json_template_currently, bd, message)
-            text = "Локация сохранена."
-        bot.send_message(chat_id=message.chat.id, text=text)
-        clean_json(json_template_currently)
+    if check_not_command(message, USER_STATE_ADD, START_CREATE, json_template_currently):
+        add.command_add_ca(message, json_template_currently, bd, bot)
         update_state_usr(message, START_CREATE, USER_STATE_ADD)
-        back_to_start(message)
 
 
-def get_json_loc(message):
-    json_loc = json.loads(bd.get(message.from_user.id).decode('utf8'))
-    for name_field in json_loc:
-        json_template_currently[name_field] = json_loc[name_field]
-
-
-def get_list_10(json_f, n):
-    json_result = {}
-    n10 = 10 * n
-    for name_field in json_f:
-        json_result[name_field] = json_f[name_field][-1 - n10:-11 - n10:-1]
-    return json_result
-
-
-def output_10(message, json10, n):
-    right_limit = len(json10["latitude"]) if len(json10["latitude"]) != 10 else 10
-    for number in range(right_limit):
-        text = "{}. {}\nЛокация добавленна: {}".format(n + number + 1, json10["name"][number], json10["time"][number])
-        if json10["photo"][number] == NO_PHOTO:
-            bot.send_message(chat_id=message.chat.id, text=text + "\n" + json10["photo"][number])
-        else:
-            bot.send_photo(chat_id=message.chat.id, photo=json10["photo"][number], caption=text)
-        bot.send_location(
-            chat_id=message.chat.id,
-            latitude=json10["latitude"][number],
-            longitude=json10["longitude"][number]
-        )
-
-
-def output_logic(message, state):
-    json10 = get_list_10(json_template_currently, state)
-    text_add = ", чтобы добавить введите команду /add"
-    len_all_list = len(json_template_currently["latitude"])
-    len_json10 = len(json10["latitude"])
-    size_n10 = state * 10
-    if len_all_list == 0:
-        back_to_start(message, "У вас нет геолокаций" + text_add, ("/start", "/add"))
-    else:
-        if len_all_list < size_n10:
-            update_state_usr(message, START_LIST, USER_STATE_LIST)
-            back_to_start(message, "Больше нет геолокаций" + text_add + " . ", ("/start", "/add"))
-        else:
-            bot.send_message(chat_id=message.chat.id, text="{}/{} :".format(size_n10 + len_json10, len_all_list))
-            output_10(message, json10, size_n10)
-            text1 = "Напишите текст или нажмите кнопку 'Ещё', чтобы дальше смотреть, "
-            text2 = "или любой другой текст, чтобы выйти из режима просмотра."
-            message_btn(message, text1 + text2, ("Ещё", "Хватит"))
-            update_state_usr(message, state + 1, USER_STATE_LIST)
-
-
-@bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_LIST) == 0, commands=['list'])
+@bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_LIST) == START_LIST, commands=['list'])
 def show_list_first(message):
-    get_json_loc(message)
-    output_logic(message, get_state_usr(message, USER_STATE_LIST))
+    next_state = list.command_list_sl(message, bd, json_template_currently, START_LIST, START_LIST, NO_PHOTO, bot)
+    update_state_usr(message, next_state, USER_STATE_LIST)
 
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_LIST) > 0)
 def show_list(message):
-    if check_not_command(message, USER_STATE_LIST):
-        if message.text.strip().lower() == "ещё":
-            output_logic(message, get_state_usr(message, USER_STATE_LIST))
-        else:
-            back_to_start(message)
-            clean_json(json_template_currently)
-            update_state_usr(message, START_LIST, USER_STATE_LIST)
+    if check_not_command(message, USER_STATE_LIST, START_LIST, json_template_currently):
+        next_state = list.command_list_nl(
+            message, get_state_usr(message, USER_STATE_LIST), START_LIST, json_template_currently, NO_PHOTO, bot
+        )
+        update_state_usr(message, next_state, USER_STATE_LIST)
 
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_DEL) == START_DEL, commands=['reset'])
 def start_reset(message):
-    text = "Удалить? Нажмите на кнопку или ведите да, чтобы удалить, или любое другое сообщение, чтобы не удалять"
-    message_btn(message, text, yes_no_btns)
+    reset.command_list_sd(message, bot, yes_no_btns)
     update_state_usr(message, CONFIRM_DEL, USER_STATE_DEL)
 
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_DEL) == CONFIRM_DEL)
 def confirm_reset(message):
-    if check_not_command(message, USER_STATE_DEL):
-        text = "Локации не удалены. "
-        if message.text is not None and message.text.strip().lower() == "да":
-            create_and_del_usr(message)
-            text = "Все локации удалены. "
-        back_to_start(message, text)
+    if check_not_command(message, USER_STATE_DEL, START_DEL, json_template_currently):
+        reset.command_list_cd(message, bd, json_template_bd, bot)
         update_state_usr(message, START_DEL, USER_STATE_DEL)
 
 
