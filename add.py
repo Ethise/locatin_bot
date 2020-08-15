@@ -19,7 +19,6 @@ def command_add_gl(message, json_v, bot):
         text = "Добавьте имя геолокации"
         go_next = True
     bot.send_message(chat_id=message.chat.id, text=text)
-    output_place_map(message, json_v["longitude"], json_v["latitude"], bot)
     return go_next
 
 
