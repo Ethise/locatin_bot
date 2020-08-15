@@ -1,5 +1,6 @@
 import datetime
 from general_functions import message_btn, update_bd, back_to_help, clean_json
+from google_maps_api import output_place_map
 
 
 #sc = START CREATE
@@ -18,6 +19,7 @@ def command_add_gl(message, json_v, bot):
         text = "Добавьте имя геолокации"
         go_next = True
     bot.send_message(chat_id=message.chat.id, text=text)
+    output_place_map(message, json_v["longitude"], json_v["latitude"], bot)
     return go_next
 
 
