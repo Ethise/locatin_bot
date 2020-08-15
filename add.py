@@ -1,6 +1,5 @@
 import datetime
 from general_functions import message_btn, update_bd, back_to_help, clean_json
-from google_maps_api import output_place_map
 
 
 #sc = START CREATE
