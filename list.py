@@ -64,5 +64,6 @@ def output_10_list(message, json10, no_ph, bot, btn, n=0):
             chat_id=message.chat.id,
             latitude=json10["latitude"][number],
             longitude=json10["longitude"][number],
-            reply_markup=btn.create_keyboard(json10["latitude"][number], json10["longitude"][number], json10["name"][number])
+            reply_markup=btn.create_keyboard(json10["latitude"][number], json10["longitude"][number],
+            json10["name"][number])
         )
