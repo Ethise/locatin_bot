@@ -8,11 +8,13 @@ import add
 import general_functions
 import list
 import reset
+from button import NearbyPlaces
 
 
 START_CREATE, GET_LOCATION, GET_NAME, GET_PHOTO, CONFIRM_ADD = range(5)
 START_DEL, CONFIRM_DEL = range(2)
 START_LIST = 0
+NEARBY_BTN = 0
 NO_PHOTO = "Без фотографии"
 USER_STATE_ADD = defaultdict(lambda: START_CREATE)
 USER_STATE_DEL = defaultdict(lambda: START_DEL)
@@ -25,6 +27,7 @@ bot = telebot.TeleBot(token)
 bd = redis.from_url(redis_url)
 commands = ('/add', '/list', '/reset', '/start', '/help')
 yes_no_btns = ("Да", "Нет")
+nearby_btn = NearbyPlaces(NEARBY_BTN, bot)
 
 json_template_currently = {
     "latitude": "",
@@ -119,7 +122,9 @@ def confirm_add(message):
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_LIST) == START_LIST, commands=['list'])
 def show_list_first(message):
-    next_state = list.command_list_sl(message, bd, json_template_currently, START_LIST, START_LIST, NO_PHOTO, bot)
+    next_state = list.command_list_sl(
+        message, bd, json_template_currently, START_LIST, START_LIST, NO_PHOTO, bot, nearby_btn
+    )
     update_state_usr(message, next_state, USER_STATE_LIST)
 
 
@@ -127,9 +132,16 @@ def show_list_first(message):
 def show_list(message):
     if check_not_command(message, USER_STATE_LIST, START_LIST, json_template_currently):
         next_state = list.command_list_nl(
-            message, get_state_usr(message, USER_STATE_LIST), START_LIST, json_template_currently, NO_PHOTO, bot
+            message, get_state_usr(message, USER_STATE_LIST),
+            START_LIST, json_template_currently, NO_PHOTO, bot, nearby_btn
         )
         update_state_usr(message, next_state, USER_STATE_LIST)
+
+
+@bot.callback_query_handler(func=lambda x: True)
+def callback_nearby(callback_query):
+    message = nearby_btn.callback(callback_query)
+    update_state_usr(message, get_state_usr(message, USER_STATE_LIST), USER_STATE_LIST)
 
 
 @bot.message_handler(func=lambda message: get_state_usr(message, USER_STATE_DEL) == START_DEL, commands=['reset'])
